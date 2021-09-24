@@ -30,9 +30,10 @@ def _check(images, dtypes, min_value=-np.inf, max_value=np.inf):
     else:
         r = 'inf)'
         max_value = np.inf
+    if np.min(images) <= min_value and np.max(images) >= max_value:
+        print(images.shape)
     assert np.min(images) >= min_value and np.max(images) <= max_value, \
         '`images` should be in the range of %s!' % (l + ',' + r)
-
 
 def to_range(images, min_value=0.0, max_value=1.0, dtype=None):
     """Transform images from [-1.0, 1.0] to [min_value, max_value] of dtype."""

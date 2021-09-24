@@ -38,7 +38,7 @@ py.arg("--port", default=52162)
 args = py.args()
 
 # output_dir
-output_dir = py.join('output', args.dataset+'attention_v3')
+output_dir = py.join('output', args.dataset+'attention_v2_validation_v3')
 py.mkdir(output_dir)
 
 # save settings
@@ -68,8 +68,10 @@ A_B_dataset_test, _ = data.make_zip_dataset(
 # =                                   models                                   =
 # ==============================================================================
 
-G_A2B = module.ResnetGenerator(input_shape=(args.crop_size, args.crop_size, 3), attention=True)
-G_B2A = module.ResnetGenerator(input_shape=(args.crop_size, args.crop_size, 3))
+# G_A2B = module.ResnetGenerator(input_shape=(args.crop_size, args.crop_size, 3), attention=True)
+# G_B2A = module.ResnetGenerator(input_shape=(args.crop_size, args.crop_size, 3))
+G_A2B = tf.keras.models.load_model(r'A2B.h5')
+G_B2A = tf.keras.models.load_model(r'B2A.h5')
 
 D_A = module.ConvDiscriminator(input_shape=(args.crop_size, args.crop_size, 3))
 D_B = module.ConvDiscriminator(input_shape=(args.crop_size, args.crop_size, 3))

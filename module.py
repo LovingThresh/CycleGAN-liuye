@@ -1,6 +1,7 @@
 import tensorflow as tf
 import tensorflow_addons as tfa
 import tensorflow.keras as keras
+from tensorflow.keras.utils import plot_model
 
 
 # ==============================================================================
@@ -77,15 +78,24 @@ def ResnetGenerator(input_shape=(227, 227, 3),
     # 5
     h = tf.pad(h, [[0, 0], [3, 3], [3, 3], [0, 0]], mode='REFLECT')
     h = keras.layers.Conv2D(output_channels, 8, padding='valid')(h)
+    # 假如我不添加tanh的话，又会出现报错
+    h = tf.tanh(h)
     if attention:
-        attention_mask = tf.sigmoid(h[:, :, :, 0])  # 91
+        attention_mask = tf.sigmoid(h[:, :, :, 1])
+        # 上述式子对应的式attention_v2，在此次实验中可以发现裂缝都被涂上了绿色，可以以此来做无监督学习
+        # 应该对上述式子进行更进一步的研究
+        # attention_mask = tf.sigmoid(h[:, :, :, 0])  # 91
         content_mask = h[:, :, :, 1:]
         attention_mask = tf.expand_dims(attention_mask, axis=3)  # [93]
         attention_mask = tf.concat([attention_mask, attention_mask, attention_mask], axis=3)  # [94]
         h = content_mask * attention_mask + inputs * (1 - attention_mask)
-    h = tf.tanh(h)
+    # h = tf.tanh(h)
 
     return keras.Model(inputs=inputs, outputs=h)
+
+
+# model = ResnetGenerator((227, 227, 3), 3, attention=True)
+# plot_model(model, 'model_validation_v2.png')
 
 
 def ConvDiscriminator(input_shape=(256, 256, 3),
