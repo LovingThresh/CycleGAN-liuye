@@ -33,7 +33,7 @@ py.arg('--adversarial_loss_mode', default='lsgan', choices=['gan', 'hinge_v1', '
 py.arg('--gradient_penalty_mode', default='none', choices=['none', 'dragan', 'wgan-gp'])
 py.arg('--gradient_penalty_weight', type=float, default=10.0)
 py.arg('--cycle_loss_weight', type=float, default=10.0)
-py.arg('--identity_loss_weight', type=float, default=0.0)
+py.arg('--identity_loss_weight', type=float, default=10.0)
 py.arg('--pool_size', type=int, default=50)  # pool size to store fake samples
 py.arg('--lambda_reg', type=float, default=1e-6)
 py.arg('--starting_rate', type=float, default=0.01, help='Set the lambda weight between GAN loss and '
@@ -44,7 +44,7 @@ py.arg("--port", default=52162)
 args = py.args()
 
 # output_dir
-output_dir = py.join('output', args.dataset + 'attention_v2_validation_v6')
+output_dir = py.join('output', args.dataset + 'attention_v2_validation_v7')
 py.mkdir(output_dir)
 
 # save settings
@@ -104,10 +104,10 @@ def train_G(A, B):
     with tf.GradientTape() as t:
         A2B, mask_B, temp_B = G_A2B(A, training=True)
         B2A, mask_A, temp_A = G_B2A(B, training=True)
-        A2B2A = G_B2A(A2B, training=True)[0]
-        B2A2B = G_A2B(B2A, training=True)[0]
-        A2A = G_B2A(A, training=True)[0]
-        B2B = G_A2B(B, training=True)[0]
+        A2B2A, _, _ = G_B2A(A2B, training=True)
+        B2A2B, _, _ = G_A2B(B2A, training=True)
+        A2A, _, _ = G_B2A(A, training=True)
+        B2B, _, _ = G_A2B(B, training=True)
 
         A2B_d_logits = D_B(A2B, training=True)
         B2A_d_logits = D_A(B2A, training=True)
@@ -216,7 +216,7 @@ except Exception as e:
     print(e)
 
 # summary
-training = True
+training = False
 if training:
     train_summary_writer = tf.summary.create_file_writer(py.join(output_dir, 'summaries', 'train'))
 
@@ -258,11 +258,11 @@ if training:
             checkpoint.save(ep)
 
 # %%
-test = False
+test = True
 if test:
     G_A2B = checkpoint.checkpoint.G_A2B
 
-    mask_layer = G_A2B.layers[94].output
+    mask_layer = G_A2B.output
     mask_model = tf.keras.Model(inputs=G_A2B.input, outputs=mask_layer)
     path = r'C:\Users\liuye\Desktop\Slender Cracks Positive/'
     for i in os.listdir(path):
@@ -270,9 +270,10 @@ if test:
         o_img_file = cv2.imread(filepath)
         img_file = ((o_img_file - 127.5) / 127.5).reshape((1, 227, 227, 3))
         image = tf.convert_to_tensor(img_file, dtype=tf.float32)
-        mask = mask_model.predict(image)
+        mask = mask_model.predict(image)[1]
         # result = G_A2B.predict(image)
-        plt.imsave('./result_validation/{}.jpg'.format(i[:-4]), mask.reshape(227, 227))
+        mask = (mask - mask.min()) / (mask.max() - mask.min())
+        plt.imsave('./result_validation/{}_2.jpg'.format(i[:-4]), mask.reshape(227, 227, 3))
     # print(mask.shape)
 
     # def plot_without_axis(plot, channel):
