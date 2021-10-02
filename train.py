@@ -44,7 +44,7 @@ py.arg("--port", default=52162)
 args = py.args()
 
 # output_dir
-output_dir = py.join('output', args.dataset + 'attention_v2_validation_v7')
+output_dir = py.join('output', args.dataset + 'cycle_gan')
 py.mkdir(output_dir)
 
 # save settings
@@ -74,11 +74,11 @@ A_B_dataset_test, _ = data.make_zip_dataset(
 # =                                   models                                   =
 # ==============================================================================
 
-G_A2B = module.AttentionCycleGAN_v1_Generator(input_shape=(args.crop_size, args.crop_size, 3), attention=True)
-G_B2A = module.AttentionCycleGAN_v1_Generator(input_shape=(args.crop_size, args.crop_size, 3), attention=True)
+# G_A2B = module.AttentionCycleGAN_v1_Generator(input_shape=(args.crop_size, args.crop_size, 3), attention=False)
+# G_B2A = module.AttentionCycleGAN_v1_Generator(input_shape=(args.crop_size, args.crop_size, 3), attention=False)
 
-# G_A2B = module.ResnetGenerator(input_shape=(args.crop_size, args.crop_size, 3), attention=True)
-# G_B2A = module.ResnetGenerator(input_shape=(args.crop_size, args.crop_size, 3))
+G_A2B = module.ResnetGenerator(input_shape=(args.crop_size, args.crop_size, 3), attention=True)
+G_B2A = module.ResnetGenerator(input_shape=(args.crop_size, args.crop_size, 3), attention=False)
 # G_A2B = tf.keras.models.load_model(r'A2B.h5')
 # G_B2A = tf.keras.models.load_model(r'B2A.h5')
 
@@ -102,12 +102,18 @@ D_optimizer = keras.optimizers.Adam(learning_rate=D_lr_scheduler, beta_1=args.be
 @tf.function
 def train_G(A, B):
     with tf.GradientTape() as t:
-        A2B, mask_B, temp_B = G_A2B(A, training=True)
-        B2A, mask_A, temp_A = G_B2A(B, training=True)
-        A2B2A, _, _ = G_B2A(A2B, training=True)
-        B2A2B, _, _ = G_A2B(B2A, training=True)
-        A2A, _, _ = G_B2A(A, training=True)
-        B2B, _, _ = G_A2B(B, training=True)
+        A2B = G_A2B(A, training=True)[0]
+        B2A = G_B2A(B, training=True)
+        A2B2A = G_B2A(A2B, training=True)
+        B2A2B = G_A2B(B2A, training=True)[0]
+        A2A = G_B2A(A, training=True)
+        B2B = G_A2B(B, training=True)[0]
+        # A2B, mask_B, temp_B = G_A2B(A, training=True)
+        # B2A, mask_A, temp_A = G_B2A(B, training=True)
+        # A2B2A, _, _ = G_B2A(A2B, training=True)
+        # B2A2B, _, _ = G_A2B(B2A, training=True)
+        # A2A, _, _ = G_B2A(A, training=True)
+        # B2B, _, _ = G_A2B(B, training=True)
 
         A2B_d_logits = D_B(A2B, training=True)
         B2A_d_logits = D_A(B2A, training=True)
@@ -119,20 +125,17 @@ def train_G(A, B):
         A2A_id_loss = identity_loss_fn(A, A2A)
         B2B_id_loss = identity_loss_fn(B, B2B)
 
-        loss_reg_A = args.lambda_reg * (
-                K.sum(K.abs(mask_A[:, :-1, :, :] - mask_A[:, 1:, :, :])) +
-                K.sum(K.abs(mask_A[:, :, :-1, :] - mask_A[:, :, 1:, :])))
+        # loss_reg_A = args.lambda_reg * (
+        #         K.sum(K.abs(mask_A[:, :-1, :, :] - mask_A[:, 1:, :, :])) +
+        #         K.sum(K.abs(mask_A[:, :, :-1, :] - mask_A[:, :, 1:, :])))
+        #
+        # loss_reg_B = args.lambda_reg * (
+        #         K.sum(K.abs(mask_B[:, :-1, :, :] - mask_B[:, 1:, :, :])) +
+        #         K.sum(K.abs(mask_B[:, :, :-1, :] - mask_B[:, :, 1:, :])))
 
-        loss_reg_B = args.lambda_reg * (
-                K.sum(K.abs(mask_B[:, :-1, :, :] - mask_B[:, 1:, :, :])) +
-                K.sum(K.abs(mask_B[:, :, :-1, :] - mask_B[:, :, 1:, :])))
+        # rate = args.starting_rate
 
-        rate = args.starting_rate
-
-        G_loss = (A2B_g_loss + B2A_g_loss) * 0.5 + \
-                 (A2B2A_cycle_loss + B2A2B_cycle_loss) * args.cycle_loss_weight + \
-                 (A2A_id_loss + B2B_id_loss) * args.identity_loss_weight + \
-                 (loss_reg_A + loss_reg_B) * (1. - rate)
+        G_loss = (A2B_g_loss + B2A_g_loss) + (A2B2A_cycle_loss + B2A2B_cycle_loss) * args.cycle_loss_weight + (A2A_id_loss + B2B_id_loss) * args.identity_loss_weight
 
     G_grad = t.gradient(G_loss, G_A2B.trainable_variables + G_B2A.trainable_variables)
     G_optimizer.apply_gradients(zip(G_grad, G_A2B.trainable_variables + G_B2A.trainable_variables))
@@ -142,9 +145,10 @@ def train_G(A, B):
                       'A2B2A_cycle_loss': A2B2A_cycle_loss,
                       'B2A2B_cycle_loss': B2A2B_cycle_loss,
                       'A2A_id_loss': A2A_id_loss,
-                      'B2B_id_loss': B2B_id_loss,
-                      'loss_reg_A': loss_reg_A,
-                      'loss_reg_B': loss_reg_B}
+                      'B2B_id_loss': B2B_id_loss
+                      }
+    # 'loss_reg_A': loss_reg_A,
+    # 'loss_reg_B': loss_reg_B
 
 
 @tf.function
@@ -186,10 +190,12 @@ def train_step(A, B):
 @tf.function
 def sample(A, B):
     A2B = G_A2B(A, training=False)[0]
-    B2A = G_B2A(B, training=False)[0]
-    A2B2A = G_B2A(A2B, training=False)[0]
+    B2A = G_B2A(B, training=False)
+    A2B_mask = G_A2B(A, training=False)[1]
+    A2B2A = G_B2A(A2B, training=False)
     B2A2B = G_A2B(B2A, training=False)[0]
-    return A2B, B2A, A2B2A, B2A2B
+    B2A2B_mask = G_A2B(B2A, training=False)[1]
+    return A2B, B2A, A2B_mask, A2B2A, B2A2B, B2A2B_mask
 
 
 # ==============================================================================
@@ -216,7 +222,7 @@ except Exception as e:
     print(e)
 
 # summary
-training = False
+training = True
 if training:
     train_summary_writer = tf.summary.create_file_writer(py.join(output_dir, 'summaries', 'train'))
 
@@ -238,6 +244,7 @@ if training:
             for A, B in tqdm.tqdm(A_B_dataset, desc='Inner Epoch Loop', total=len_dataset):
                 G_loss_dict, D_loss_dict = train_step(A, B)
 
+
                 # # summary
                 tl.summary(G_loss_dict, step=G_optimizer.iterations, name='G_losses')
                 tl.summary(D_loss_dict, step=G_optimizer.iterations, name='D_losses')
@@ -245,20 +252,21 @@ if training:
                            name='learning rate')
 
                 # sample
-                sampling = False
+                sampling = True
                 if sampling:
                     if G_optimizer.iterations.numpy() % 100 == 0:
                         A, B = next(test_iter)
-                        A2B, B2A, A2B2A, B2A2B = sample(A, B)
-                        img = im.immerge(np.concatenate([A, A2B, A2B2A, B, B2A, B2A2B], axis=0), n_rows=2)
-                        # img = 0.9 * (img - 0.5 * (img.max() - img.min())) / (0.5 * (img.max() - img.min()))
+                        A2B, B2A, A2B_mask, A2B2A, B2A2B, B2A2B_mask = sample(A, B)
+                        img = im.immerge(np.concatenate([A, A2B, A2B_mask, A2B2A, B, B2A, B2A2B, B2A2B_mask], axis=0),
+                                         n_rows=2)
                         im.imwrite(img, py.join(sample_dir, 'iter-%09d.jpg' % G_optimizer.iterations.numpy()))
+                        print(G_loss_dict, D_loss_dict)
 
             # save checkpoint
             checkpoint.save(ep)
 
 # %%
-test = True
+test = False
 if test:
     G_A2B = checkpoint.checkpoint.G_A2B
 

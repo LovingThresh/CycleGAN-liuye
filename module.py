@@ -85,20 +85,32 @@ def ResnetGenerator(input_shape=(227, 227, 3),
     # 5
     h = tf.pad(h, [[0, 0], [3, 3], [3, 3], [0, 0]], mode='REFLECT')
     h = keras.layers.Conv2D(output_channels, 8, padding='valid')(h)
+    if not attention:
+        h = tf.tanh(h)
+        return keras.Model(inputs=inputs, outputs=h)
     # 假如我不添加tanh的话，又会出现报错
-    # h = tf.sigmoid(h)
     if attention:
-        attention_mask = tf.sigmoid(h[:, :, :, 0])  # mask[0]
+
+        attention_mask = h[:, :, :, 0:1]
+        attention_mask = tf.pad(attention_mask, [[0, 0], [1, 1], [1, 1], [0, 0]], mode='REFLECT')
+        attention_mask = Conv2D(64, (3, 3), (1, 1), 'same', use_bias=False)(attention_mask)
+        attention_mask = Norm()(attention_mask)
+        attention_mask = tf.nn.relu(attention_mask)
+        attention_mask = Conv2D(3, (3, 3), (1, 1), 'valid', use_bias=False)(attention_mask)
+        attention_mask = Norm()(attention_mask)
+        attention_mask = tf.sigmoid(attention_mask)
+        # attention_mask = tf.expand_dims(attention_mask, axis=3)
+        # attention_mask = tf.concat([attention_mask, attention_mask, attention_mask], axis=3)
+
         # 上述式子对应的式attention_v2，在此次实验中可以发现裂缝都被涂上了绿色，可以以此来做无监督学习
         # 应该对上述式子进行更进一步的研究
         # attention_mask = tf.sigmoid(h[:, :, :, 0])  # 91
-        content_mask = tf.tanh(h[:, :, :, 1:])
-        attention_mask = tf.expand_dims(attention_mask, axis=3)  # [93]
-        attention_mask = tf.concat([attention_mask, attention_mask, attention_mask], axis=3)  # [94]
-        h = content_mask * attention_mask + inputs * (1 - attention_mask)
-    h = tf.tanh(h)
 
-    return keras.Model(inputs=inputs, outputs=h)
+        content_mask = h[:, :, :, 1:]
+        content_mask = tf.tanh(content_mask)
+        h = content_mask * attention_mask + inputs * (1 - attention_mask)
+
+        return keras.Model(inputs=inputs, outputs=[h, attention_mask])
 
 
 attention_mask, content_mask = None, None
@@ -177,8 +189,6 @@ def AttentionCycleGAN_v1_Generator(input_shape=(227, 227, 3), output_channel=3,
     return keras.Model(inputs=a, outputs=result_layer)
 
 
-# model = ResnetGenerator((227, 227, 3), 3, attention=True)
-# plot_model(model, 'model_validation_v2.png')
 
 
 def ConvDiscriminator(input_shape=(256, 256, 3),
