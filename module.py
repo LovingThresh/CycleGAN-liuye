@@ -1,3 +1,4 @@
+import numpy as np
 import tensorflow as tf
 import tensorflow_addons as tfa
 import tensorflow.keras as keras
@@ -90,7 +91,6 @@ def ResnetGenerator(input_shape=(227, 227, 3),
         return keras.Model(inputs=inputs, outputs=h)
     # 假如我不添加tanh的话，又会出现报错
     if attention:
-
         attention_mask = h[:, :, :, 0:1]
         attention_mask = tf.pad(attention_mask, [[0, 0], [1, 1], [1, 1], [0, 0]], mode='REFLECT')
         attention_mask = Conv2D(64, (3, 3), (1, 1), 'same', use_bias=False)(attention_mask)
@@ -99,6 +99,7 @@ def ResnetGenerator(input_shape=(227, 227, 3),
         attention_mask = Conv2D(3, (3, 3), (1, 1), 'valid', use_bias=False)(attention_mask)
         attention_mask = Norm()(attention_mask)
         attention_mask = tf.sigmoid(attention_mask)
+        attention_mask = attention_mask * attention_mask
         # attention_mask = tf.expand_dims(attention_mask, axis=3)
         # attention_mask = tf.concat([attention_mask, attention_mask, attention_mask], axis=3)
 
@@ -113,13 +114,67 @@ def ResnetGenerator(input_shape=(227, 227, 3),
         return keras.Model(inputs=inputs, outputs=[h, attention_mask])
 
 
-attention_mask, content_mask = None, None
+def squeeze_middle2axes_operator(x4d, C, output_size):
+    keras.backend.set_image_data_format('channels_first')
+    shape = tf.shape(x4d)  # get dynamic tensor shape
+    x4d = tf.reshape(x4d, [shape[0], shape[1], shape[2] * 2, shape[4] * 2])
+    return x4d
+
+
+def squeeze_middle2axes_shape(output_size):
+    in_batch, C, in_rows, _, in_cols, _ = output_size
+
+    if None in [in_rows, in_cols]:
+        output_shape = (in_batch, C, None, None)
+    else:
+        output_shape = (in_batch, C, in_rows, in_cols)
+    return output_shape
+
+
+class pixelshuffle(tf.keras.layers.Layer):
+    """Sub-pixel convolution layer.
+    See https://arxiv.org/abs/1609.05158
+    """
+
+    def __init__(self, scale, trainable=False, **kwargs):
+        self.scale = scale
+        super().__init__(trainable=trainable, **kwargs)
+
+    def call(self, t, *args, **kwargs):
+        upscale_factor = self.scale
+        input_size = t.shape.as_list()
+        dimensionality = len(input_size) - 2
+        new_shape = self.compute_output_shape(input_size)
+        C = new_shape[1]
+
+        output_size = new_shape[2:]
+        x = [upscale_factor] * dimensionality
+        old_h = input_size[-2] if input_size[-2] is not None else -1
+        old_w = input_size[-1] if input_size[-1] is not None else -1
+
+        shape = tf.shape(t)
+        t = tf.reshape(t, [-1, C, x[0], x[1], shape[-2], shape[-1]])
+
+        perms = [0, 1, 5, 2, 4, 3]
+        t = tf.transpose(t, perm=perms)
+        t = Lambda(squeeze_middle2axes_operator, output_shape=squeeze_middle2axes_shape,
+                   arguments={'C': C, 'output_size': output_size})(t)
+        t = tf.transpose(t, [0, 1, 3, 2])
+        return t
+
+    def compute_output_shape(self, input_shape):
+        r = self.scale
+        rrC, H, W = np.array(input_shape[1:])
+        assert rrC % (r ** 2) == 0
+        height = H * r if H is not None else -1
+        width = W * r if W is not None else -1
+
+        return input_shape[0], rrC // (r ** 2), height, width
 
 
 def AttentionCycleGAN_v1_Generator(input_shape=(227, 227, 3), output_channel=3,
                                    n_downsampling=2, n_ResBlock=9,
                                    norm='batch_norm', attention=False):
-    global attention_mask, content_mask
     Norm = _get_norm_layer(norm)
     a = keras.Input(shape=input_shape)
     h = tf.pad(a, [[0, 0], [3, 3], [3, 3], [0, 0]], mode='REFLECT')
@@ -127,6 +182,7 @@ def AttentionCycleGAN_v1_Generator(input_shape=(227, 227, 3), output_channel=3,
     def model_layer_1(y):
         y = Conv2D(64, (7, 7), (1, 1), 'valid')(y)
         y = Norm()(y)
+        y = ReLU()
         return y
 
     h = model_layer_1(h)
@@ -168,17 +224,35 @@ def AttentionCycleGAN_v1_Generator(input_shape=(227, 227, 3), output_channel=3,
     upsampling = n_downsampling
 
     for i in range(upsampling):
+        mult = 2 ** (n_downsampling - 1)
+
         def model_layer_4(y):
-            y = Conv2DTranspose(64 * mult / 2, (3, 3), (2, 2), 'same')(y)
+            y = tf.pad(y, [[0, 0], [3, 3], [3, 3], [0, 0]], mode='REFLECT')
+            y = Conv2D(int(64 * mult / 2), (3, 3), (1, 1))(y)
             y = Norm()(y)
             y = ReLU()(y)
+            y = Conv2D(int(64 * mult / 2) * 4, (1, 1), (1, 1))(y)
+            y = pixelshuffle(2)(y)
+            y = Norm()(y)
+            y = ReLU()(y)
+
             return y
+
         h = model_layer_4(h)
-        mult = mult / 2
+
+        # def model_layer_4(y):
+        #     y = Conv2DTranspose(64 * mult / 2, (3, 3), (2, 2), 'same')(y)
+        #     y = Norm()(y)
+        #     y = ReLU()(y)
+        #     return y
+        #
+        # h = model_layer_4(h)
+        # mult = mult / 2
 
     h = tf.pad(h, [[0, 0], [3, 3], [3, 3], [0, 0]], mode='REFLECT')
     h = Conv2D(output_channel, (8, 8), (1, 1), 'valid')(h)
     result_layer = h
+
     if attention:
         attention_mask = tf.sigmoid(h[:, :, :, :1])
         content_mask = h[:, :, :, 1:]
@@ -187,8 +261,6 @@ def AttentionCycleGAN_v1_Generator(input_shape=(227, 227, 3), output_channel=3,
 
         return keras.Model(inputs=a, outputs=[result_layer, attention_mask, content_mask])
     return keras.Model(inputs=a, outputs=result_layer)
-
-
 
 
 def ConvDiscriminator(input_shape=(256, 256, 3),
@@ -242,7 +314,7 @@ class LinearDecay(keras.optimizers.schedules.LearningRateSchedule):
         self.current_learning_rate.assign(tf.cond(
             step >= self._step_decay,
             true_fn=lambda: self._initial_learning_rate * (
-                        1 - 1 / (self._steps - self._step_decay) * (step - self._step_decay)),
+                    1 - 1 / (self._steps - self._step_decay) * (step - self._step_decay)),
             false_fn=lambda: self._initial_learning_rate
         ))
         return self.current_learning_rate
