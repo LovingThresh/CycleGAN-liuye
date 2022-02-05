@@ -3,8 +3,7 @@ import tensorflow as tf
 import tensorflow_addons as tfa
 import tensorflow.keras as keras
 from tensorflow.keras.layers import *
-from tensorflow.keras.utils import plot_model
-
+from AttentionBlock import *
 
 # ==============================================================================
 # =                                  networks                                  =
@@ -44,9 +43,7 @@ def ResnetGenerator(input_shape=(227, 227, 3),
         h = Norm()(h)
         h = tf.nn.relu(h)
 
-        h = tf.pad(h, [[0, 0], [1, 1], [1, 1], [0, 0]], mode='REFLECT')
-        h = keras.layers.Conv2D(dim, 3, padding='valid', use_bias=False)(h)
-        h = Norm()(h)
+        h = cbam_block(h, ratio=8)
 
         return keras.layers.add([x, h])
 
@@ -93,10 +90,10 @@ def ResnetGenerator(input_shape=(227, 227, 3),
     if attention:
         attention_mask = h[:, :, :, 0:1]
         attention_mask = tf.pad(attention_mask, [[0, 0], [1, 1], [1, 1], [0, 0]], mode='REFLECT')
-        attention_mask = Conv2D(64, (3, 3), (1, 1), 'same', use_bias=False)(attention_mask)
+        attention_mask = keras.layers.Conv2D(64, (3, 3), (1, 1), 'same', use_bias=False)(attention_mask)
         attention_mask = Norm()(attention_mask)
         attention_mask = tf.nn.relu(attention_mask)
-        attention_mask = Conv2D(3, (3, 3), (1, 1), 'valid', use_bias=False)(attention_mask)
+        attention_mask = keras.layers.Conv2D(3, (3, 3), (1, 1), 'valid', use_bias=False)(attention_mask)
         attention_mask = Norm()(attention_mask)
         attention_mask = tf.sigmoid(attention_mask)
         attention_mask = attention_mask * attention_mask
@@ -263,16 +260,16 @@ def AttentionCycleGAN_v1_Generator(input_shape=(227, 227, 3), output_channel=3,
     return keras.Model(inputs=a, outputs=result_layer)
 
 
-def ConvDiscriminator(input_shape=(256, 256, 3),
+def ConvDiscriminator(input_shape=(227, 227, 3),
                       dim=64,
                       n_downsamplings=3,
                       norm='instance_norm'):
     dim_ = dim
-    Norm = _get_norm_layer(norm)
-
+    # Norm = _get_norm_layer(norm)
+    Norm = keras.layers.BatchNormalization
     # 0
     h = inputs = keras.Input(shape=input_shape)
-
+    h = keras.layers.ZeroPadding2D((3, 3))(h)
     # 1
     h = keras.layers.Conv2D(dim, 4, strides=2, padding='same')(h)
     h = tf.nn.leaky_relu(h, alpha=0.2)
@@ -290,10 +287,13 @@ def ConvDiscriminator(input_shape=(256, 256, 3),
     h = tf.nn.leaky_relu(h, alpha=0.2)
 
     # 3
-    h = keras.layers.Conv2D(1, 4, strides=1, padding='same')(h)
+    h = keras.layers.ZeroPadding2D((1, 1))(h)
+    h = cbam_block(h, ratio=8)
+    h = keras.layers.Conv2D(1, 3, strides=1, padding='same')(h)
 
     return keras.Model(inputs=inputs, outputs=h)
-
+a = ConvDiscriminator()
+a.summary()
 
 # ==============================================================================
 # =                          learning rate scheduler                           =

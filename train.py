@@ -103,9 +103,11 @@ D_optimizer = keras.optimizers.Adam(learning_rate=D_lr_scheduler, beta_1=args.be
 def train_G(A, B):
     with tf.GradientTape() as t:
         A2B = G_A2B(A, training=True)[0]
+        Attention_mask_A2B = G_A2B(A, training=True)[1]
         B2A = G_B2A(B, training=True)
         A2B2A = G_B2A(A2B, training=True)
         B2A2B = G_A2B(B2A, training=True)[0]
+        Attention_mask_B2A2B = G_A2B(B2A, training=True)[1]
         A2A = G_B2A(A, training=True)
         B2B = G_A2B(B, training=True)[0]
         # A2B, mask_B, temp_B = G_A2B(A, training=True)
@@ -118,10 +120,12 @@ def train_G(A, B):
         A2B_d_logits = D_B(A2B, training=True)
         B2A_d_logits = D_A(B2A, training=True)
 
+        A2B_s_loss = gan.get_SSIM_loss_fn(A, Attention_mask_A2B, A2B)(A, A2B)
         A2B_g_loss = g_loss_fn(A2B_d_logits)
         B2A_g_loss = g_loss_fn(B2A_d_logits)
         A2B2A_cycle_loss = cycle_loss_fn(A, A2B2A)
         B2A2B_cycle_loss = cycle_loss_fn(B, B2A2B)
+        B2A2B_s_loss = gan.get_SSIM_loss_fn(B2A, Attention_mask_B2A2B, B2A2B)
         A2A_id_loss = identity_loss_fn(A, A2A)
         B2B_id_loss = identity_loss_fn(B, B2B)
 
@@ -135,7 +139,8 @@ def train_G(A, B):
 
         # rate = args.starting_rate
 
-        G_loss = (A2B_g_loss + B2A_g_loss) + (A2B2A_cycle_loss + B2A2B_cycle_loss) * args.cycle_loss_weight + (A2A_id_loss + B2B_id_loss) * args.identity_loss_weight
+        G_loss = (A2B_g_loss + B2A_g_loss) + (A2B2A_cycle_loss + B2A2B_cycle_loss) * args.cycle_loss_weight + \
+                 (A2A_id_loss + B2B_id_loss) * args.identity_loss_weight + (A2B_s_loss + B2A2B_s_loss)
 
     G_grad = t.gradient(G_loss, G_A2B.trainable_variables + G_B2A.trainable_variables)
     G_optimizer.apply_gradients(zip(G_grad, G_A2B.trainable_variables + G_B2A.trainable_variables))
@@ -145,7 +150,9 @@ def train_G(A, B):
                       'A2B2A_cycle_loss': A2B2A_cycle_loss,
                       'B2A2B_cycle_loss': B2A2B_cycle_loss,
                       'A2A_id_loss': A2A_id_loss,
-                      'B2B_id_loss': B2B_id_loss
+                      'B2B_id_loss': B2B_id_loss,
+                      'A2B_s_loss': A2B_s_loss,
+                      'B2A2B_s_loss': B2A2B_s_loss
                       }
     # 'loss_reg_A': loss_reg_A,
     # 'loss_reg_B': loss_reg_B
