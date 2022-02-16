@@ -1,6 +1,6 @@
 import functools
 import os
-import shutil
+
 import cv2
 
 import imlib as im
@@ -44,7 +44,7 @@ py.arg("--port", default=52162)
 args = py.args()
 
 # output_dir
-output_dir = py.join('output', args.dataset + 'cycle_gan_2')
+output_dir = py.join('output', args.dataset + 'cycle_gan')
 py.mkdir(output_dir)
 
 # save settings
@@ -221,9 +221,6 @@ try:  # restore checkpoint including the epoch counter
 except Exception as e:
     print(e)
 
-module_dir = py.join(output_dir, 'module_code')
-py.mkdir(module_dir)
-shutil.copy('module.py', module_dir)
 # summary
 training = True
 if training:
@@ -233,7 +230,6 @@ if training:
     test_iter = iter(A_B_dataset_test)
     sample_dir = py.join(output_dir, 'samples_training')
     py.mkdir(sample_dir)
-
 
     # main loop
     with train_summary_writer.as_default():
