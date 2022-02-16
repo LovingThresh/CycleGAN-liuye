@@ -1,6 +1,20 @@
 import tensorflow as tf
 
 
+def get_SSIM_loss_fn(original_image, mask, gen_image):
+
+    def segmentation_loss_fn(original_image, gen_image):
+        for axis in range(len(original_image.shape[-1])):
+            original_image[:, :, :, axis] = original_image[:, :, :, axis] - mask * original_image[:, :, :, axis] + \
+                                            mask * tf.reduce_mean(
+                original_image[:, :, :, axis] - mask * original_image[:, :, :, axis]
+                , axis=axis)
+        s_loss = tf.image.ssim(original_image, gen_image, 1.0) - 1.0
+        return s_loss
+
+    return segmentation_loss_fn
+
+
 def get_gan_losses_fn():
     bce = tf.losses.BinaryCrossentropy(from_logits=True)
 
@@ -86,7 +100,7 @@ def get_adversarial_losses_fn(mode):
 def gradient_penalty(f, real, fake, mode):
     def _gradient_penalty(f, real, fake=None):
         def _interpolate(a, b=None):
-            if b is None:   # interpolation in DRAGAN
+            if b is None:  # interpolation in DRAGAN
                 beta = tf.random.uniform(shape=tf.shape(a), minval=0., maxval=1.)
                 b = a + 0.5 * tf.math.reduce_std(a) * beta
             shape = [tf.shape(a)[0]] + [1] * (a.shape.ndims - 1)
@@ -101,7 +115,7 @@ def gradient_penalty(f, real, fake, mode):
             pred = f(x)
         grad = t.gradient(pred, x)
         norm = tf.norm(tf.reshape(grad, [tf.shape(grad)[0], -1]), axis=1)
-        gp = tf.reduce_mean((norm - 1.)**2)
+        gp = tf.reduce_mean((norm - 1.) ** 2)
 
         return gp
 

@@ -7,7 +7,13 @@ def make_dataset(img_paths, batch_size, load_size, crop_size, training, drop_rem
     if training:
         @tf.function
         def _map_fn(img):  # preprocessing
+            # 可以进行一些复杂的图像增强技术
             img = tf.image.random_flip_left_right(img)
+            img = tf.image.random_brightness(img, 0.2)
+            img = tf.image.random_saturation(img, 0.2, 0.8)
+            img = tf.image.random_flip_up_down(img)
+            img = tf.image.random_hue(img, 0.8)
+
             img = tf.image.resize(img, [load_size, load_size])
             img = tf.image.random_crop(img, [crop_size, crop_size, tf.shape(img)[-1]])
             img = tf.clip_by_value(img, 0, 255) / 255.0  # or img = tl.minmax_norm(img)
