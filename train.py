@@ -1,5 +1,6 @@
 import functools
 import os
+import datetime
 
 import cv2
 
@@ -14,7 +15,6 @@ import tqdm
 import matplotlib.pyplot as plt
 import data
 import module
-import tensorflow.keras.backend as K
 
 # ==============================================================================
 # =                                   param                                    =
@@ -25,7 +25,7 @@ py.arg('--datasets_dir', default='datasets')
 py.arg('--load_size', type=int, default=227)  # load image to this size
 py.arg('--crop_size', type=int, default=227)  # then crop to this size
 py.arg('--batch_size', type=int, default=1)
-py.arg('--epochs', type=int, default=5)
+py.arg('--epochs', type=int, default=20)
 py.arg('--epoch_decay', type=int, default=10)  # epoch to start decaying learning rate
 py.arg('--lr', type=float, default=0.0002)
 py.arg('--beta_1', type=float, default=0.5)
@@ -44,7 +44,13 @@ py.arg("--port", default=52162)
 args = py.args()
 
 # output_dir
-output_dir = py.join('output', args.dataset + 'cycle_gan')
+a = str(datetime.datetime.now())
+b = list(a)
+b[10] = '-'
+b[13] = '-'
+b[16] = '-'
+output_dir = ''.join(b)
+output_dir = r'E:/Cycle_GAN/output/{}'.format(output_dir)
 py.mkdir(output_dir)
 
 # save settings
@@ -120,12 +126,12 @@ def train_G(A, B):
         A2B_d_logits = D_B(A2B, training=True)
         B2A_d_logits = D_A(B2A, training=True)
 
-        A2B_s_loss = gan.get_SSIM_loss_fn(A, Attention_mask_A2B, A2B)(A, A2B)
+        # A2B_s_loss = gan.get_SSIM_loss_fn(A, Attention_mask_A2B, A2B)(A, A2B)
         A2B_g_loss = g_loss_fn(A2B_d_logits)
         B2A_g_loss = g_loss_fn(B2A_d_logits)
         A2B2A_cycle_loss = cycle_loss_fn(A, A2B2A)
         B2A2B_cycle_loss = cycle_loss_fn(B, B2A2B)
-        B2A2B_s_loss = gan.get_SSIM_loss_fn(B2A, Attention_mask_B2A2B, B2A2B)
+        # B2A2B_s_loss = gan.get_SSIM_loss_fn(B2A, Attention_mask_B2A2B, B2A2B)
         A2A_id_loss = identity_loss_fn(A, A2A)
         B2B_id_loss = identity_loss_fn(B, B2B)
 
@@ -140,7 +146,9 @@ def train_G(A, B):
         # rate = args.starting_rate
 
         G_loss = (A2B_g_loss + B2A_g_loss) + (A2B2A_cycle_loss + B2A2B_cycle_loss) * args.cycle_loss_weight + \
-                 (A2A_id_loss + B2B_id_loss) * args.identity_loss_weight + (A2B_s_loss + B2A2B_s_loss)
+                 (A2A_id_loss + B2B_id_loss) * args.identity_loss_weight
+
+    # (A2B_s_loss + B2A2B_s_loss)
 
     G_grad = t.gradient(G_loss, G_A2B.trainable_variables + G_B2A.trainable_variables)
     G_optimizer.apply_gradients(zip(G_grad, G_A2B.trainable_variables + G_B2A.trainable_variables))
@@ -151,8 +159,8 @@ def train_G(A, B):
                       'B2A2B_cycle_loss': B2A2B_cycle_loss,
                       'A2A_id_loss': A2A_id_loss,
                       'B2B_id_loss': B2B_id_loss,
-                      'A2B_s_loss': A2B_s_loss,
-                      'B2A2B_s_loss': B2A2B_s_loss
+                      # 'A2B_s_loss': A2B_s_loss,
+                      # 'B2A2B_s_loss': B2A2B_s_loss
                       }
     # 'loss_reg_A': loss_reg_A,
     # 'loss_reg_B': loss_reg_B
@@ -250,7 +258,6 @@ if training:
             # train for an epoch
             for A, B in tqdm.tqdm(A_B_dataset, desc='Inner Epoch Loop', total=len_dataset):
                 G_loss_dict, D_loss_dict = train_step(A, B)
-
 
                 # # summary
                 tl.summary(G_loss_dict, step=G_optimizer.iterations, name='G_losses')
